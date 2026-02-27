@@ -1,0 +1,19 @@
+﻿# Python
+**/venv/
+**/__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+
+# Env and local config
+.env
+**/.env
+
+# Build and runtime artifacts
+backend/media/
+*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db

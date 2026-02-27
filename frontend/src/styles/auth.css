@@ -43,6 +43,30 @@
     justify-content: center
 }
 
+.profile-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.profile-pill {
+    border: 1px solid #9fb9e8;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--light-2);
+    padding: 10px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.profile-pill.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
 /* -------------------------------
    Typography
 -------------------------------- */

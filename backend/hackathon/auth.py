@@ -24,7 +24,19 @@ def _require_env(name: str) -> str:
     return value
 
 
-def post_form_json(*, url: str, payload: dict[str, str], timeout: int = 15) -> dict:
+def _external_timeout_seconds(default: int = 8) -> int:
+    raw = (os.getenv('EXTERNAL_AUTH_TIMEOUT_SECONDS') or '').strip()
+    if not raw:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
+
+
+def post_form_json(*, url: str, payload: dict[str, str], timeout: int | None = None) -> dict:
+    effective_timeout = timeout if timeout is not None else _external_timeout_seconds()
     headers = {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Accept': 'application/json',
@@ -34,7 +46,7 @@ def post_form_json(*, url: str, payload: dict[str, str], timeout: int = 15) -> d
     req = urllib.request.Request(url, data=raw, method='POST', headers=headers)
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=effective_timeout) as resp:
             status = getattr(resp, 'status', None) or resp.getcode()
             body = resp.read().decode('utf-8')
             if status < 200 or status >= 300:

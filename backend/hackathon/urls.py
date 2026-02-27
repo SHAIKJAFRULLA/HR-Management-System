@@ -1,6 +1,38 @@
 from django.urls import path
 
-from .views import ApiForgotPasswordView, ApiLoginView, ApiLogoutView, ApiMeView, ApiOtpRequestView, ApiOtpVerifyView, ApiRegisterView, HealthView
+from .hr_views import (
+    HrAlertsView,
+    HrAccessVerifyView,
+    HrComplianceDashboardView,
+    HrComplianceReportView,
+    HrCtcAnalyticsView,
+    HrDashboardView,
+    HrDocumentDownloadView,
+    HrDocumentVerifyView,
+    HrEmployeeDocumentView,
+    HrExitWorkflowView,
+    HrHeadcountView,
+    HrJoinersLeaversView,
+    HrOnboardingBootstrapView,
+    HrOnboardingView,
+    HrRoleCtcHistoryView,
+)
+
+from .views import (
+    ApiForgotPasswordView,
+    ApiLoginView,
+    ApiLogoutView,
+    ApiMeView,
+    ApiOtpRequestView,
+    ApiOtpVerifyView,
+    ApiRegisterView,
+    EmployeeDetailView,
+    EmployeeExitView,
+    EmployeeProfileView,
+    EmployeesView,
+    HealthView,
+    
+)
 
 urlpatterns = [
     path('', HealthView.as_view(), name='health'),
@@ -11,4 +43,23 @@ urlpatterns = [
     path('api/otp/verify', ApiOtpVerifyView.as_view(), name='api_otp_verify'),
     path('api/home', ApiMeView.as_view(), name='api_home'),
     path('api/logout', ApiLogoutView.as_view(), name='api_logout'),
+    path('employees/', EmployeesView.as_view(), name='employees'),
+    path('employees/<int:employee_id>/', EmployeeDetailView.as_view(), name='employee_detail'),
+    path('employees/<int:employee_id>/exit/', EmployeeExitView.as_view(), name='employee_exit'),
+    path('employees/<str:employee_id>/profile/', EmployeeProfileView.as_view(), name='employee_profile'),
+    path('api/hr/dashboard/', HrDashboardView.as_view(), name='hr_dashboard'),
+    path('api/hr/access/verify/', HrAccessVerifyView.as_view(), name='hr_access_verify'),
+    path('api/hr/compliance-report/', HrComplianceReportView.as_view(), name='hr_compliance_report'),
+    path('api/hr/ctc-analytics/', HrCtcAnalyticsView.as_view(), name='hr_ctc_analytics'),
+    path('api/hr/joiners-leavers/', HrJoinersLeaversView.as_view(), name='hr_joiners_leavers'),
+    path('api/hr/headcount/', HrHeadcountView.as_view(), name='hr_headcount'),
+    path('api/hr/alerts/', HrAlertsView.as_view(), name='hr_alerts'),
+    path('api/hr/compliance-dashboard/', HrComplianceDashboardView.as_view(), name='hr_compliance_dashboard'),
+    path('api/hr/documents/', HrEmployeeDocumentView.as_view(), name='hr_documents'),
+    path('api/hr/documents/<int:doc_id>/verify/', HrDocumentVerifyView.as_view(), name='hr_document_verify'),
+    path('api/hr/documents/<int:doc_id>/download/', HrDocumentDownloadView.as_view(), name='hr_document_download'),
+    path('api/hr/exit-workflow/', HrExitWorkflowView.as_view(), name='hr_exit_workflow'),
+    path('api/hr/role-ctc/', HrRoleCtcHistoryView.as_view(), name='hr_role_ctc'),
+    path('api/hr/onboarding/', HrOnboardingView.as_view(), name='hr_onboarding'),
+    path('api/hr/onboarding/bootstrap/', HrOnboardingBootstrapView.as_view(), name='hr_onboarding_bootstrap'),
 ]

@@ -1,8 +1,12 @@
 import json
 import re
+from datetime import date
 
+from django.db import IntegrityError, transaction
 from django.http import HttpRequest, JsonResponse
 from django.views import View
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 
 from .auth import (
     ExternalAuthError,
@@ -13,6 +17,13 @@ from .auth import (
     load_signed_session,
     post_form_json,
     require_env,
+)
+from .models import (
+    LegacyEmployeeBankInfo,
+    LegacyEmployeeComplianceTracker,
+    LegacyEmployeeCtcInfo,
+    LegacyEmployeeMaster,
+    LegacyEmployeeRegInfo,
 )
 
 SYSTEM_NAME = 'isl'
@@ -88,11 +99,13 @@ def _post_external_or_error(
     return result, None
 
 
+
 class HealthView(View):
     def get(self, request: HttpRequest) -> JsonResponse:
         return JsonResponse({'status': 'ok'})
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ApiLoginView(View):
     def post(self, request: HttpRequest) -> JsonResponse:
         payload = _json_body(request)
@@ -131,6 +144,7 @@ class ApiLoginView(View):
         )
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ApiForgotPasswordView(View):
     def post(self, request: HttpRequest) -> JsonResponse:
         payload = _json_body(request)
@@ -156,6 +170,7 @@ class ApiForgotPasswordView(View):
         return JsonResponse({'ok': True, 'message': _external_success_message(result or {})})
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ApiRegisterView(View):
     def post(self, request: HttpRequest) -> JsonResponse:
         payload = _json_body(request)
@@ -186,6 +201,7 @@ class ApiRegisterView(View):
         return JsonResponse({'ok': True, 'message': _external_success_message(result or {})})
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ApiMeView(View):
     def get(self, request: HttpRequest) -> JsonResponse:
         session_payload = _get_session_payload(request)
@@ -210,11 +226,13 @@ class ApiMeView(View):
         )
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ApiLogoutView(View):
     def post(self, request: HttpRequest) -> JsonResponse:
         return JsonResponse({'ok': True})
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ApiOtpRequestView(View):
     def post(self, request: HttpRequest) -> JsonResponse:
         payload = _json_body(request)
@@ -248,6 +266,7 @@ class ApiOtpRequestView(View):
         return JsonResponse({'challenge_id': challenge_id, 'expires_at': expires_at.isoformat()})
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ApiOtpVerifyView(View):
     def post(self, request: HttpRequest) -> JsonResponse:
         payload = _json_body(request)
@@ -287,3 +306,407 @@ class ApiOtpVerifyView(View):
                 'user': {'id': None, 'username': email},
             }
         )
+
+
+def _parse_iso_date(raw_value: str | None) -> date | None:
+    value = (raw_value or '').strip()
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _require_employee_session(request: HttpRequest) -> JsonResponse | None:
+    if _get_session_payload(request) is None:
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+    return None
+
+
+def _next_pk(model_cls, field_name: str) -> int:
+    latest = model_cls.objects.order_by(f'-{field_name}').values_list(field_name, flat=True).first()
+    return int(latest or 0) + 1
+
+
+def _latest_ctc(emp_id: int) -> LegacyEmployeeCtcInfo | None:
+    return (
+        LegacyEmployeeCtcInfo.objects.filter(emp_id=emp_id)
+        .order_by('-start_of_ctc', '-emp_ctc_id')
+        .first()
+    )
+
+
+def _compliance_map(emp_id: int) -> dict[str, LegacyEmployeeComplianceTracker]:
+    rows = LegacyEmployeeComplianceTracker.objects.filter(emp_id=emp_id)
+    mapping: dict[str, LegacyEmployeeComplianceTracker] = {}
+    for row in rows.order_by('-emp_compliance_tracker_id'):
+        key = (row.comp_type or '').strip().lower()
+        if key and key not in mapping:
+            mapping[key] = row
+    return mapping
+
+
+def _latest_ctc_by_emp_ids(emp_ids: list[int]) -> dict[int, LegacyEmployeeCtcInfo]:
+    mapping: dict[int, LegacyEmployeeCtcInfo] = {}
+    if not emp_ids:
+        return mapping
+    rows = LegacyEmployeeCtcInfo.objects.filter(emp_id__in=emp_ids).order_by('emp_id', '-start_of_ctc', '-emp_ctc_id')
+    for row in rows:
+        if row.emp_id not in mapping:
+            mapping[row.emp_id] = row
+    return mapping
+
+
+def _compliance_by_emp_ids(
+    emp_ids: list[int],
+) -> dict[int, dict[str, LegacyEmployeeComplianceTracker]]:
+    mapping: dict[int, dict[str, LegacyEmployeeComplianceTracker]] = {}
+    if not emp_ids:
+        return mapping
+    rows = LegacyEmployeeComplianceTracker.objects.filter(emp_id__in=emp_ids).order_by(
+        'emp_id', '-emp_compliance_tracker_id'
+    )
+    for row in rows:
+        emp_map = mapping.setdefault(row.emp_id, {})
+        key = (row.comp_type or '').strip().lower()
+        if key and key not in emp_map:
+            emp_map[key] = row
+    return mapping
+
+
+def _serialize_master_employee(master: LegacyEmployeeMaster) -> dict:
+    full_name = ' '.join(
+        part for part in [master.first_name, master.middle_name, master.last_name] if part
+    ).strip()
+    latest_ctc = _latest_ctc(master.emp_id)
+    comp = _compliance_map(master.emp_id)
+    return {
+        'id': master.emp_id,
+        'emp_id': str(master.emp_id),
+        'name': full_name,
+        'designation': latest_ctc.ext_title if latest_ctc else '',
+        'department': comp.get('department').status if comp.get('department') else '',
+        'joining_date': master.start_date.isoformat() if master.start_date else None,
+        'email': comp.get('email').status if comp.get('email') else '',
+        'contact_number': comp.get('contact').status if comp.get('contact') else '',
+        'is_active': master.end_date is None,
+        'end_date': master.end_date.isoformat() if master.end_date else None,
+    }
+
+
+def _serialize_master_employee_with_maps(
+    master: LegacyEmployeeMaster,
+    latest_ctc_map: dict[int, LegacyEmployeeCtcInfo],
+    compliance_map: dict[int, dict[str, LegacyEmployeeComplianceTracker]],
+) -> dict:
+    full_name = ' '.join(
+        part for part in [master.first_name, master.middle_name, master.last_name] if part
+    ).strip()
+    latest_ctc = latest_ctc_map.get(master.emp_id)
+    comp = compliance_map.get(master.emp_id, {})
+    return {
+        'id': master.emp_id,
+        'emp_id': str(master.emp_id),
+        'name': full_name,
+        'designation': latest_ctc.ext_title if latest_ctc else '',
+        'department': comp.get('department').status if comp.get('department') else '',
+        'joining_date': master.start_date.isoformat() if master.start_date else None,
+        'email': comp.get('email').status if comp.get('email') else '',
+        'contact_number': comp.get('contact').status if comp.get('contact') else '',
+        'is_active': master.end_date is None,
+        'end_date': master.end_date.isoformat() if master.end_date else None,
+    }
+
+
+def _require_numeric_emp_id(raw_emp_id: str) -> int | None:
+    value = (raw_emp_id or '').strip()
+    if not value.isdigit():
+        return None
+    return int(value)
+
+
+def _split_name(raw_name: str) -> tuple[str, str | None, str] | None:
+    parts = [part for part in (raw_name or '').strip().split() if part]
+    if len(parts) < 2:
+        return None
+    first_name = parts[0]
+    last_name = parts[-1]
+    middle_name = ' '.join(parts[1:-1]) or None
+    return first_name, middle_name, last_name
+
+
+def _upsert_compliance(emp_id: int, comp_type: str, status_value: str) -> None:
+    normalized = (status_value or '').strip()
+    if not normalized:
+        return
+    row = (
+        LegacyEmployeeComplianceTracker.objects.filter(emp_id=emp_id, comp_type=comp_type)
+        .order_by('-emp_compliance_tracker_id')
+        .first()
+    )
+    if row:
+        row.status = normalized
+        row.save(update_fields=['status'])
+        return
+    LegacyEmployeeComplianceTracker.objects.create(
+        emp_compliance_tracker_id=_next_pk(LegacyEmployeeComplianceTracker, 'emp_compliance_tracker_id'),
+        emp_id=emp_id,
+        comp_type=comp_type,
+        status=normalized,
+        doc_url='',
+    )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class EmployeesView(View):
+    def get(self, request: HttpRequest) -> JsonResponse:
+        unauthorized = _require_employee_session(request)
+        if unauthorized:
+            return unauthorized
+
+        employees = list(LegacyEmployeeMaster.objects.all().order_by('-emp_id'))
+        emp_ids = [emp.emp_id for emp in employees]
+        latest_ctc_map = _latest_ctc_by_emp_ids(emp_ids)
+        compliance_map = _compliance_by_emp_ids(emp_ids)
+        return JsonResponse(
+            [_serialize_master_employee_with_maps(emp, latest_ctc_map, compliance_map) for emp in employees],
+            safe=False,
+        )
+
+    def post(self, request: HttpRequest) -> JsonResponse:
+        unauthorized = _require_employee_session(request)
+        if unauthorized:
+            return unauthorized
+
+        payload = _json_body(request)
+        required_fields = ['emp_id', 'name', 'designation', 'department', 'joining_date', 'email', 'contact_number']
+        missing_fields = [field for field in required_fields if not (payload.get(field) or '').strip()]
+        if missing_fields:
+            return JsonResponse({'error': f'Missing fields: {", ".join(missing_fields)}'}, status=400)
+
+        emp_id = _require_numeric_emp_id(payload.get('emp_id') or '')
+        if emp_id is None:
+            return JsonResponse({'error': 'Emp ID must be numeric for company master tables.'}, status=400)
+
+        joining_date = _parse_iso_date(payload.get('joining_date'))
+        if not joining_date:
+            return JsonResponse({'error': 'Invalid joining_date. Use YYYY-MM-DD.'}, status=400)
+
+        split = _split_name(payload.get('name') or '')
+        if split is None:
+            return JsonResponse({'error': 'Name must include at least first and last name.'}, status=400)
+        first_name, middle_name, last_name = split
+
+        try:
+            with transaction.atomic():
+                master = LegacyEmployeeMaster.objects.create(
+                    emp_id=emp_id,
+                    first_name=first_name,
+                    middle_name=middle_name,
+                    last_name=last_name,
+                    start_date=joining_date,
+                    end_date=None,
+                )
+                LegacyEmployeeCtcInfo.objects.create(
+                    emp_ctc_id=_next_pk(LegacyEmployeeCtcInfo, 'emp_ctc_id'),
+                    emp_id=emp_id,
+                    int_title=(payload.get('department') or '').strip() or 'GENERAL',
+                    ext_title=(payload.get('designation') or '').strip() or 'Employee',
+                    main_level=1,
+                    sub_level='A',
+                    start_of_ctc=joining_date,
+                    end_of_ctc=None,
+                    ctc_amt=120000,
+                )
+                _upsert_compliance(emp_id, 'Department', (payload.get('department') or '').strip())
+                _upsert_compliance(emp_id, 'Email', (payload.get('email') or '').strip())
+                _upsert_compliance(emp_id, 'Contact', (payload.get('contact_number') or '').strip())
+        except IntegrityError:
+            return JsonResponse({'error': 'Emp ID already exists.'}, status=400)
+
+        return JsonResponse(_serialize_master_employee(master), status=201)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class EmployeeDetailView(View):
+    def put(self, request: HttpRequest, employee_id: int) -> JsonResponse:
+        unauthorized = _require_employee_session(request)
+        if unauthorized:
+            return unauthorized
+
+        try:
+            employee = LegacyEmployeeMaster.objects.get(pk=employee_id)
+        except LegacyEmployeeMaster.DoesNotExist:
+            return JsonResponse({'error': 'Employee not found.'}, status=404)
+
+        payload = _json_body(request)
+        if 'name' in payload:
+            split = _split_name(payload.get('name') or '')
+            if split is None:
+                return JsonResponse({'error': 'Name must include at least first and last name.'}, status=400)
+            employee.first_name, employee.middle_name, employee.last_name = split
+            employee.save(update_fields=['first_name', 'middle_name', 'last_name'])
+
+        if 'designation' in payload:
+            designation = (payload.get('designation') or '').strip()
+            if not designation:
+                return JsonResponse({'error': 'designation cannot be empty.'}, status=400)
+            current_ctc = _latest_ctc(employee.emp_id)
+            if current_ctc:
+                current_ctc.ext_title = designation
+                current_ctc.save(update_fields=['ext_title'])
+            else:
+                LegacyEmployeeCtcInfo.objects.create(
+                    emp_ctc_id=_next_pk(LegacyEmployeeCtcInfo, 'emp_ctc_id'),
+                    emp_id=employee.emp_id,
+                    int_title=(payload.get('department') or '').strip() or 'GENERAL',
+                    ext_title=designation,
+                    main_level=1,
+                    sub_level='A',
+                    start_of_ctc=employee.start_date,
+                    end_of_ctc=None,
+                    ctc_amt=120000,
+                )
+
+        if 'department' in payload:
+            _upsert_compliance(employee.emp_id, 'Department', (payload.get('department') or '').strip())
+        if 'email' in payload:
+            _upsert_compliance(employee.emp_id, 'Email', (payload.get('email') or '').strip())
+        if 'contact_number' in payload:
+            _upsert_compliance(employee.emp_id, 'Contact', (payload.get('contact_number') or '').strip())
+
+        return JsonResponse(_serialize_master_employee(employee))
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class EmployeeExitView(View):
+    def post(self, request: HttpRequest, employee_id: int) -> JsonResponse:
+        unauthorized = _require_employee_session(request)
+        if unauthorized:
+            return unauthorized
+
+        try:
+            employee = LegacyEmployeeMaster.objects.get(pk=employee_id)
+        except LegacyEmployeeMaster.DoesNotExist:
+            return JsonResponse({'error': 'Employee not found.'}, status=404)
+
+        payload = _json_body(request)
+        end_date = _parse_iso_date(payload.get('end_date'))
+        if not end_date:
+            return JsonResponse({'error': 'Invalid or missing end_date. Use YYYY-MM-DD.'}, status=400)
+
+        if employee.start_date and end_date < employee.start_date:
+            return JsonResponse({'error': 'end_date cannot be before joining_date.'}, status=400)
+
+        employee.end_date = end_date
+        employee.save(update_fields=['end_date'])
+        return JsonResponse(_serialize_master_employee(employee))
+
+
+def _as_iso(value) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class EmployeeProfileView(View):
+    def get(self, request: HttpRequest, employee_id: str) -> JsonResponse:
+        unauthorized = _require_employee_session(request)
+        if unauthorized:
+            return unauthorized
+
+        base_emp_id = None
+        personal = None
+
+        if employee_id.isdigit():
+            master = LegacyEmployeeMaster.objects.filter(emp_id=int(employee_id)).first()
+            if master:
+                comp = _compliance_map(master.emp_id)
+                full_name = ' '.join(
+                    part for part in [master.first_name, master.middle_name, master.last_name] if part
+                ).strip()
+                latest_ctc = (
+                    LegacyEmployeeCtcInfo.objects.filter(emp_id=master.emp_id)
+                    .order_by('-start_of_ctc', '-emp_ctc_id')
+                    .first()
+                )
+                personal = {
+                    'name': full_name or None,
+                    'emp_id': str(master.emp_id),
+                    'designation': latest_ctc.ext_title if latest_ctc else None,
+                    'department': comp.get('department').status if comp.get('department') else None,
+                    'joining_date': _as_iso(master.start_date),
+                    'email': comp.get('email').status if comp.get('email') else None,
+                    'contact_number': comp.get('contact').status if comp.get('contact') else None,
+                    'status': 'Exited' if master.end_date else 'Active',
+                }
+                base_emp_id = master.emp_id
+
+        if personal is None:
+            return JsonResponse({'error': 'Employee profile not found.'}, status=404)
+
+        bank_info = None
+        reg_info = None
+        compliance_rows = []
+        ctc_rows = []
+        if base_emp_id is not None:
+            bank_info = (
+                LegacyEmployeeBankInfo.objects.filter(emp_id=base_emp_id)
+                .order_by('-emp_bank_id')
+                .first()
+            )
+            reg_info = (
+                LegacyEmployeeRegInfo.objects.filter(emp_id=base_emp_id)
+                .order_by('-emp_reg_info_id')
+                .first()
+            )
+            compliance_rows = list(
+                LegacyEmployeeComplianceTracker.objects.filter(emp_id=base_emp_id).order_by(
+                    '-emp_compliance_tracker_id'
+                )
+            )
+            ctc_rows = list(
+                LegacyEmployeeCtcInfo.objects.filter(emp_id=base_emp_id).order_by('start_of_ctc')
+            )
+
+        profile = {
+            'personal_details': personal,
+            'bank_details': {
+                'account_number': bank_info.bank_acct_no if bank_info else None,
+                'bank_name': bank_info.bank_name if bank_info else None,
+                'ifsc_code': bank_info.ifsc_code if bank_info else None,
+                'branch_name': bank_info.branch_name if bank_info else None,
+            },
+            'compliance_ids': {
+                'pf_number': reg_info.uan_epf_acctno if reg_info else None,
+                'esi_number': reg_info.esi if reg_info else None,
+                'pan': reg_info.pan if reg_info else None,
+                'aadhaar': reg_info.aadhaar if reg_info else None,
+                'tracker': [
+                    {
+                        'type': row.comp_type,
+                        'status': row.status,
+                        'doc_url': row.doc_url,
+                    }
+                    for row in compliance_rows
+                ],
+            },
+            'ctc_timeline': [
+                {
+                    'effective_from': _as_iso(row.start_of_ctc),
+                    'effective_to': _as_iso(row.end_of_ctc),
+                    'internal_title': row.int_title,
+                    'external_title': row.ext_title,
+                    'main_level': row.main_level,
+                    'sub_level': row.sub_level,
+                    'ctc_amount': str(row.ctc_amt) if row.ctc_amt is not None else None,
+                }
+                for row in ctc_rows
+            ],
+        }
+
+        return JsonResponse(profile)

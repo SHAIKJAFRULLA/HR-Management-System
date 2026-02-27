@@ -9,7 +9,7 @@ import '../styles/auth.css'
 
 function AuthPage() {
   const navigate = useNavigate()
-  const { signIn, signInWithOtp, status, user } = useAuth()
+  const { signIn, signInWithOtp, status, user, profileType, setProfileType } = useAuth()
   const [mode, setMode] = useState('login')
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [username, setUsername] = useState('')
@@ -177,6 +177,23 @@ function AuthPage() {
 
           {mode === 'login' ? (
             <form id="authForm" onSubmit={onSubmit}>
+              <div className="profile-switch" role="tablist" aria-label="Profile login type">
+                <button
+                  type="button"
+                  className={`profile-pill${profileType === 'user' ? ' active' : ''}`}
+                  onClick={() => setProfileType('user')}
+                >
+                  User Login
+                </button>
+                <button
+                  type="button"
+                  className={`profile-pill${profileType === 'hr' ? ' active' : ''}`}
+                  onClick={() => setProfileType('hr')}
+                >
+                  HR Login
+                </button>
+              </div>
+
               {errorMessage ? <div className="text-danger mb-2">{errorMessage}</div> : null}
               {infoMessage ? <div className="text-success mb-2">{infoMessage}</div> : null}
 

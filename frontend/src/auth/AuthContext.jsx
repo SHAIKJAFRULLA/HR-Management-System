@@ -1,11 +1,20 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { apiLogin, apiLogout, apiMe, apiOtpVerify } from '../api/authApi.js'
-import { clearAuthToken, getAuthToken, setAuthToken } from './tokenStorage.js'
+import {
+  clearAuthProfileType,
+  clearAuthToken,
+  getAuthProfileType,
+  getAuthToken,
+  setAuthProfileType,
+  setAuthToken,
+} from './tokenStorage.js'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => getAuthToken())
+  const [profileType, setProfileTypeState] = useState(() => getAuthProfileType())
   const [user, setUser] = useState(null)
   const [member, setMember] = useState(null)
   const [status, setStatus] = useState('loading')
@@ -77,9 +86,32 @@ export function AuthProvider({ children }) {
     setMember(null)
   }, [])
 
+  const setProfileType = useCallback((nextType) => {
+    const normalized = nextType === 'hr' ? 'hr' : 'user'
+    setAuthProfileType(normalized)
+    setProfileTypeState(normalized)
+  }, [])
+
+  const clearProfileType = useCallback(() => {
+    clearAuthProfileType()
+    setProfileTypeState('user')
+  }, [])
+
   const value = useMemo(
-    () => ({ token, user, member, status, signIn, signInWithOtp, signOut, refresh }),
-    [token, user, member, status, signIn, signInWithOtp, signOut, refresh],
+    () => ({
+      token,
+      user,
+      member,
+      status,
+      profileType,
+      signIn,
+      signInWithOtp,
+      signOut,
+      refresh,
+      setProfileType,
+      clearProfileType,
+    }),
+    [token, user, member, status, profileType, signIn, signInWithOtp, signOut, refresh, setProfileType, clearProfileType],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -23,3 +23,11 @@ export const deactivateEmployee = (id, endDate, { token } = {}) => {
 export const getEmployeeProfile = (id, { token } = {}) => {
   return httpJson(`/employees/${id}/profile/`, { method: "GET", token });
 };
+
+export const getEmployeeBankAccount = (id, { token } = {}) => {
+  return httpJson(`/employees/${id}/bank-account/`, { method: "GET", token });
+};
+
+export const upsertEmployeeBankAccount = (id, data, { token } = {}) => {
+  return httpJson(`/employees/${id}/bank-account/`, { method: "PUT", token, body: data });
+};

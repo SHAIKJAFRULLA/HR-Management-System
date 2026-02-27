@@ -3,12 +3,14 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import EmployeePage from "./EmployeePage";
 import HomeDashboard from "../components/HomeDashboard.jsx";
+import HRModulesPage from "./HRModulesPage.jsx";
+import HrAccessGate from "../components/HrAccessGate.jsx";
 import "../styles/Home.css";
 
 function HomePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { member, signOut, profileType } = useAuth();
+  const { member, signOut, profileType, setProfileType } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
@@ -53,6 +55,12 @@ function HomePage() {
     navigate("/auth");
   }
 
+  async function onAdminLogin() {
+    setProfileType("hr");
+    await signOut();
+    navigate("/auth");
+  }
+
   const currentModule = useMemo(() => {
     if (location.pathname.includes("/home/employees")) return "employees";
     if (location.pathname.includes("/home/hr-modules")) return "hr";
@@ -77,6 +85,24 @@ function HomePage() {
   function renderMainView() {
     if (currentModule === "dashboard") return <HomeDashboard />;
     if (currentModule === "employees") return <EmployeePage globalSearch={headerSearch} />;
+    if (currentModule === "hr") {
+      if (profileType !== "hr") {
+        return (
+          <div className="hr-login-card">
+            <h3>Admin Login Required</h3>
+            <p>To open HR modules, sign in using HR login.</p>
+            <button className="btn-primary" type="button" onClick={onAdminLogin}>
+              Go To Admin Login
+            </button>
+          </div>
+        );
+      }
+      return (
+        <HrAccessGate>
+          <HRModulesPage />
+        </HrAccessGate>
+      );
+    }
     return <HomeDashboard />;
   }
 
@@ -135,36 +161,42 @@ function HomePage() {
           </div>
 
           <div className="dropdown" ref={menuRef}>
-          <button
-            className="home-userbtn"
-            type="button"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            <i className="bi bi-person-circle" />
-          </button>
+            <button
+              className="home-userbtn"
+              type="button"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <i className="bi bi-person-circle" />
+            </button>
 
-          <ul className={`dropdown-menu dropdown-menu-end home-dropdown${menuOpen ? " show" : ""}`}>
-            <li className="px-3 pt-2 pb-1">
-              <div className="home-userline">
-                <i className="bi bi-person-circle" />
-                <div>
-                  <div className="home-username">{member?.name || "--"}</div>
-                  <div className="home-userdetail">{member?.email || "--"}</div>
-                  <div className="home-userdetail">{member?.phone || "--"}</div>
+            <div className={`home-menu-panel${menuOpen ? " open" : ""}`}>
+              <div className="home-menu-body">
+                <div className="home-userline">
+                  <i className="bi bi-person-circle" />
+                  <div>
+                    <div className="home-username">{member?.name || "--"}</div>
+                    <div className="home-userdetail">{member?.email || "--"}</div>
+                    <div className="home-userdetail">{member?.phone || "--"}</div>
+                  </div>
                 </div>
               </div>
-            </li>
-            <li>
-              <hr className="dropdown-divider" />
-            </li>
-            <li className="px-3 pb-3">
-              <button className="btn btn-danger w-100" type="button" onClick={onLogout}>
-                Logout
-              </button>
-            </li>
-          </ul>
-        </div>
+              <div className="home-menu-actions">
+                {profileType === "hr" ? (
+                  <button className="btn-secondary" type="button" onClick={() => navigate("/home/hr-modules")}>
+                    Open HR Modules
+                  </button>
+                ) : (
+                  <button className="btn-secondary" type="button" onClick={onAdminLogin}>
+                    Admin Login
+                  </button>
+                )}
+                <button className="btn-danger" type="button" onClick={onLogout}>
+                  Logout
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

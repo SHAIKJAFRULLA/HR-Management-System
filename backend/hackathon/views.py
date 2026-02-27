@@ -710,3 +710,82 @@ class EmployeeProfileView(View):
         }
 
         return JsonResponse(profile)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class EmployeeBankAccountView(View):
+    def get(self, request: HttpRequest, employee_id: int) -> JsonResponse:
+        unauthorized = _require_employee_session(request)
+        if unauthorized:
+            return unauthorized
+
+        row = (
+            LegacyEmployeeBankInfo.objects.filter(emp_id=employee_id)
+            .order_by('-emp_bank_id')
+            .first()
+        )
+        if row is None:
+            return JsonResponse(
+                {
+                    'emp_id': employee_id,
+                    'account_number': '',
+                    'bank_name': '',
+                    'ifsc_code': '',
+                    'branch_name': '',
+                }
+            )
+
+        return JsonResponse(
+            {
+                'emp_id': employee_id,
+                'account_number': row.bank_acct_no or '',
+                'bank_name': row.bank_name or '',
+                'ifsc_code': row.ifsc_code or '',
+                'branch_name': row.branch_name or '',
+            }
+        )
+
+    def put(self, request: HttpRequest, employee_id: int) -> JsonResponse:
+        unauthorized = _require_employee_session(request)
+        if unauthorized:
+            return unauthorized
+
+        payload = _json_body(request)
+        account_number = (payload.get('account_number') or '').strip()
+        bank_name = (payload.get('bank_name') or '').strip()
+        ifsc_code = (payload.get('ifsc_code') or '').strip()
+        branch_name = (payload.get('branch_name') or '').strip()
+
+        if not account_number or not bank_name or not ifsc_code or not branch_name:
+            return JsonResponse({'error': 'All bank account fields are required.'}, status=400)
+
+        row = (
+            LegacyEmployeeBankInfo.objects.filter(emp_id=employee_id)
+            .order_by('-emp_bank_id')
+            .first()
+        )
+        if row:
+            row.bank_acct_no = account_number
+            row.bank_name = bank_name
+            row.ifsc_code = ifsc_code
+            row.branch_name = branch_name
+            row.save(update_fields=['bank_acct_no', 'bank_name', 'ifsc_code', 'branch_name'])
+        else:
+            row = LegacyEmployeeBankInfo.objects.create(
+                emp_bank_id=_next_pk(LegacyEmployeeBankInfo, 'emp_bank_id'),
+                emp_id=employee_id,
+                bank_acct_no=account_number,
+                ifsc_code=ifsc_code,
+                branch_name=branch_name,
+                bank_name=bank_name,
+            )
+
+        return JsonResponse(
+            {
+                'emp_id': employee_id,
+                'account_number': row.bank_acct_no,
+                'bank_name': row.bank_name,
+                'ifsc_code': row.ifsc_code,
+                'branch_name': row.branch_name,
+            }
+        )

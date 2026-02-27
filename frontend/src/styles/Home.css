@@ -70,6 +70,10 @@ body.theme-dark .home-brand-title {
   gap: 8px;
 }
 
+.home-top-actions .dropdown {
+  position: relative;
+}
+
 .home-top-search {
   display: flex;
   align-items: center;
@@ -396,6 +400,61 @@ body.theme-dark .home-subtitle {
   min-width: min(280px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
   transform: translate(0px, 48px);
+}
+
+.home-menu-panel {
+  position: absolute;
+  right: 0;
+  top: 52px;
+  width: min(300px, calc(100vw - 24px));
+  border-radius: 12px;
+  border: 1px solid #d9e7f7;
+  background: #fff;
+  box-shadow: 0 16px 30px rgba(24, 56, 92, 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 120;
+}
+
+.home-menu-panel.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.home-menu-body {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e7eef8;
+}
+
+.home-menu-actions {
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.home-menu-actions .btn-secondary,
+.home-menu-actions .btn-danger {
+  width: 100%;
+}
+
+.hr-login-card {
+  border: 1px solid #d8e7f8;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fff, #f5f9ff);
+  padding: 20px;
+}
+
+.hr-login-card h3 {
+  margin: 0 0 8px;
+  color: #11345e;
+}
+
+.hr-login-card p {
+  margin: 0 0 14px;
+  color: #5f7892;
 }
 
 .home-userline {

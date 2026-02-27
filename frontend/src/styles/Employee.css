@@ -383,6 +383,31 @@ body.theme-dark .directory-controls {
   font-size: 14px;
 }
 
+.form-field select {
+  border: 1px solid #c5d7ea;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.form-section-title {
+  grid-column: span 2;
+  margin-top: 4px;
+  font-weight: 700;
+  color: #2d4d6e;
+  border-top: 1px dashed #d4e5f8;
+  padding-top: 10px;
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #4f6c8a;
+  font-size: 13px;
+}
+
 .field-error {
   color: #c13b3b;
   font-size: 12px;
@@ -517,6 +542,10 @@ body.theme-dark .directory-controls {
   }
 
   .employee-form-grid button {
+    grid-column: span 1;
+  }
+
+  .form-section-title {
     grid-column: span 1;
   }
 

@@ -4,7 +4,21 @@ import EmployeeForm from "../components/EmployeeForm";
 import EmployeeList from "../components/EmployeeList";
 import EmployeeDirectoryControls from "../components/EmployeeDirectoryControls";
 import { useAuth } from "../auth/AuthContext.jsx";
-import { createEmployee, deactivateEmployee, getEmployees, updateEmployee } from "../api/employeeApi";
+import {
+  createEmployee,
+  deactivateEmployee,
+  getEmployees,
+  updateEmployee,
+  upsertEmployeeBankAccount,
+} from "../api/employeeApi";
+import {
+  addRoleCtcHistory,
+  bootstrapOnboarding,
+  getDocuments,
+  saveExitWorkflow,
+  uploadDocument,
+  verifyDocument,
+} from "../api/hrApi";
 import "../styles/Employee.css";
 
 const demoEmployees = [
@@ -98,6 +112,7 @@ const EmployeePage = ({ globalSearch = "" }) => {
   const [editTarget, setEditTarget] = useState(null);
   const [exitTarget, setExitTarget] = useState(null);
   const [endDate, setEndDate] = useState("");
+  const [editDocuments, setEditDocuments] = useState([]);
   const [photoMap, setPhotoMap] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("employee_photo_map") || "{}");
@@ -150,6 +165,26 @@ const EmployeePage = ({ globalSearch = "" }) => {
   useEffect(() => {
     localStorage.setItem("employee_photo_map", JSON.stringify(photoMap));
   }, [photoMap]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadEditDocs() {
+      if (!editTarget?.emp_id) {
+        setEditDocuments([]);
+        return;
+      }
+      try {
+        const docs = await getDocuments(editTarget.emp_id, { token });
+        if (mounted) setEditDocuments(Array.isArray(docs) ? docs : []);
+      } catch {
+        if (mounted) setEditDocuments([]);
+      }
+    }
+    loadEditDocs();
+    return () => {
+      mounted = false;
+    };
+  }, [editTarget, token]);
 
   const enrichedEmployees = useMemo(() => {
     const source = employees.length > 0 ? employees : demoEmployees;
@@ -255,22 +290,103 @@ const EmployeePage = ({ globalSearch = "" }) => {
     setCompliance("all");
   }
 
+  async function applyExtraUpdates(empId, extras) {
+    if (!empId || !extras) return;
+
+    const tasks = [];
+
+    if (extras.bankAccount) {
+      tasks.push(upsertEmployeeBankAccount(empId, extras.bankAccount, { token }));
+    }
+
+    if (extras.bootstrapOnboarding) {
+      tasks.push(bootstrapOnboarding({ emp_id: String(empId) }, { token }));
+    }
+
+    if (extras.roleChange?.role && extras.roleChange?.level && extras.roleChange?.start_date) {
+      tasks.push(
+        addRoleCtcHistory(
+          {
+            emp_id: String(empId),
+            role: extras.roleChange.role,
+            level: extras.roleChange.level,
+            ctc_amount: Number(extras.roleChange.ctc_amount || 0),
+            start_date: extras.roleChange.start_date,
+            end_date: extras.roleChange.end_date || null,
+            remarks: extras.roleChange.remarks || "",
+          },
+          { token }
+        )
+      );
+    }
+
+    if (extras.exitWorkflow?.last_working_day) {
+      tasks.push(
+        saveExitWorkflow(
+          {
+            emp_id: String(empId),
+            last_working_day: extras.exitWorkflow.last_working_day,
+            clearance_status: extras.exitWorkflow.clearance_status || "pending",
+            final_settlement_done: Boolean(extras.exitWorkflow.final_settlement_done),
+            remarks: extras.exitWorkflow.remarks || "",
+          },
+          { token }
+        )
+      );
+    }
+
+    await Promise.all(tasks);
+
+    if (extras.uploadDocument?.file) {
+      const form = new FormData();
+      form.append("emp_id", String(empId));
+      form.append("doc_type", extras.uploadDocument.doc_type || "general");
+      form.append("notes", extras.uploadDocument.notes || "");
+      form.append("file", extras.uploadDocument.file);
+      await uploadDocument(form, { token });
+    }
+
+    if (extras.verifyDocument?.doc_id) {
+      await verifyDocument(
+        Number(extras.verifyDocument.doc_id),
+        {
+          status: extras.verifyDocument.status || "verified",
+          notes: extras.verifyDocument.notes || "",
+        },
+        { token }
+      );
+    }
+  }
+
   async function handleSubmit(data, mode = "create", target = null) {
     setError("");
     setBusy(true);
     try {
+      const extras = data?.extras || {};
+      const employeePayload = {
+        emp_id: data.emp_id || "",
+        name: data.name || "",
+        designation: data.designation || "",
+        department: data.department || "",
+        contact_number: data.contact_number || "",
+        email: data.email || "",
+        joining_date: data.joining_date || "",
+      };
+
       if (mode === "edit" && target) {
-        const updated = normalizeEmployee(await updateEmployee(target.id, data, { token }));
+        const updated = normalizeEmployee(await updateEmployee(target.id, employeePayload, { token }));
+        await applyExtraUpdates(updated.emp_id || target.emp_id, extras);
         setEmployees((prev) => prev.map((emp) => (employeeKey(emp) === employeeKey(target) ? updated : emp)));
-        pushToast("success", "Employee updated successfully.");
+        pushToast("success", "Employee updated successfully with additional details.");
       } else {
         const alreadyExists = enrichedEmployees.some(
           (emp) => String(emp.emp_id || "").trim().toLowerCase() === String(data.emp_id || "").trim().toLowerCase()
         );
         if (alreadyExists) throw new Error("Emp ID must be unique. Please use a different Emp ID.");
-        const created = normalizeEmployee(await createEmployee(data, { token }));
+        const created = normalizeEmployee(await createEmployee(employeePayload, { token }));
+        await applyExtraUpdates(created.emp_id || employeePayload.emp_id, extras);
         setEmployees((prev) => [created, ...prev.filter((emp) => employeeKey(emp) !== employeeKey(created))]);
-        pushToast("success", "Employee created successfully.");
+        pushToast("success", "Employee created successfully with additional details.");
       }
       fetchEmployees();
       setShowCreateModal(false);
@@ -331,6 +447,7 @@ const EmployeePage = ({ globalSearch = "" }) => {
             onSubmit={(payload) => handleSubmit(payload, mode, selected)}
             selected={selected}
             mode={mode}
+            documents={editDocuments}
             submitting={busy}
           />
         )}
@@ -454,6 +571,7 @@ const EmployeePage = ({ globalSearch = "" }) => {
               onSubmit={(payload) => handleSubmit(payload, "edit", editTarget)}
               selected={editTarget}
               mode="edit"
+              documents={editDocuments}
               submitting={busy}
             />
           </div>

@@ -426,6 +426,11 @@ def _require_numeric_emp_id(raw_emp_id: str) -> int | None:
     return int(value)
 
 
+def _next_emp_id() -> int:
+    latest = LegacyEmployeeMaster.objects.order_by('-emp_id').values_list('emp_id', flat=True).first()
+    return int(latest or 0) + 1
+
+
 def _split_name(raw_name: str) -> tuple[str, str | None, str] | None:
     parts = [part for part in (raw_name or '').strip().split() if part]
     if len(parts) < 2:
@@ -480,14 +485,20 @@ class EmployeesView(View):
             return unauthorized
 
         payload = _json_body(request)
-        required_fields = ['emp_id', 'name', 'designation', 'department', 'joining_date', 'email', 'contact_number']
+        required_fields = ['name', 'designation', 'department', 'joining_date', 'email', 'contact_number']
         missing_fields = [field for field in required_fields if not (payload.get(field) or '').strip()]
         if missing_fields:
             return JsonResponse({'error': f'Missing fields: {", ".join(missing_fields)}'}, status=400)
 
-        emp_id = _require_numeric_emp_id(payload.get('emp_id') or '')
-        if emp_id is None:
-            return JsonResponse({'error': 'Emp ID must be numeric for company master tables.'}, status=400)
+        raw_emp_id = (payload.get('emp_id') or '').strip()
+        if raw_emp_id:
+            emp_id = _require_numeric_emp_id(raw_emp_id)
+            if emp_id is None:
+                return JsonResponse({'error': 'Emp ID must be numeric.'}, status=400)
+            if LegacyEmployeeMaster.objects.filter(emp_id=emp_id).exists():
+                emp_id = _next_emp_id()
+        else:
+            emp_id = _next_emp_id()
 
         joining_date = _parse_iso_date(payload.get('joining_date'))
         if not joining_date:
@@ -523,7 +534,7 @@ class EmployeesView(View):
                 _upsert_compliance(emp_id, 'Email', (payload.get('email') or '').strip())
                 _upsert_compliance(emp_id, 'Contact', (payload.get('contact_number') or '').strip())
         except IntegrityError:
-            return JsonResponse({'error': 'Emp ID already exists.'}, status=400)
+            return JsonResponse({'error': 'Unable to create employee. Please try again.'}, status=400)
 
         return JsonResponse(_serialize_master_employee(master), status=201)
 

@@ -42,7 +42,8 @@ const EmployeeForm = ({ onSubmit, selected, submitting, mode = "create", documen
 
   const errors = useMemo(() => {
     const e = {};
-    if (!formData.emp_id) e.emp_id = "Emp ID is required";
+    if (mode === "edit" && !formData.emp_id) e.emp_id = "Emp ID is required";
+    if (mode === "create" && formData.emp_id && !/^\d+$/.test(formData.emp_id)) e.emp_id = "Emp ID must be numeric";
     if (!formData.name) e.name = "Name is required";
     if (!formData.designation) e.designation = "Designation is required";
     if (!formData.department) e.department = "Department is required";
@@ -50,7 +51,7 @@ const EmployeeForm = ({ onSubmit, selected, submitting, mode = "create", documen
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email || "")) e.email = "Valid email is required";
     if (!formData.joining_date) e.joining_date = "Joining date is required";
     return e;
-  }, [formData]);
+  }, [formData, mode]);
 
   const hasErrors = Object.keys(errors).length > 0;
 
@@ -151,7 +152,8 @@ const EmployeeForm = ({ onSubmit, selected, submitting, mode = "create", documen
     <form className="employee-form-grid" onSubmit={handleSubmit}>
       {renderField("emp_id", "Emp ID", "text", {
         pattern: "[0-9]+",
-        title: "Emp ID must be numeric",
+        title: "Emp ID must be numeric (optional while creating)",
+        placeholder: mode === "create" ? "Leave empty for auto ID" : "Emp ID",
         disabled: mode === "edit",
       })}
       {renderField("name", "Name")}

@@ -379,10 +379,6 @@ const EmployeePage = ({ globalSearch = "" }) => {
         setEmployees((prev) => prev.map((emp) => (employeeKey(emp) === employeeKey(target) ? updated : emp)));
         pushToast("success", "Employee updated successfully with additional details.");
       } else {
-        const alreadyExists = enrichedEmployees.some(
-          (emp) => String(emp.emp_id || "").trim().toLowerCase() === String(data.emp_id || "").trim().toLowerCase()
-        );
-        if (alreadyExists) throw new Error("Emp ID must be unique. Please use a different Emp ID.");
         const created = normalizeEmployee(await createEmployee(employeePayload, { token }));
         await applyExtraUpdates(created.emp_id || employeePayload.emp_id, extras);
         setEmployees((prev) => [created, ...prev.filter((emp) => employeeKey(emp) !== employeeKey(created))]);
